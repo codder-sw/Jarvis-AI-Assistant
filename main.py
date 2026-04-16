@@ -10,26 +10,22 @@ import psutil
 import requests 
 from google import genai
 
-# --- 1. AI Configuration (Speech-Friendly) ---
-# Tip: Agar quota error baar-baar aaye, toh Google AI Studio se nayi key generate karein.
+# --- 1. AI Configuration ---
 client = genai.Client(api_key="AIzaSyDzmRud71cphGGdeQsjnNhKXdKH_-ardVQ")
 
 def aiProcess(command):
     try:
-        prompt = f"Act as Jarvis, a polite AI assistant for your boss Shivam Sir. Respond to this briefly in Hinglish (Hindi + English): {command}"
+        prompt = f"Act as Jarvis, a polite AI assistant for your boss Shivam Sir. Respond to this briefly in Hinglish: {command}"
         response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
         clean_text = response.text.replace("*", "").replace("#", "").strip()
         return clean_text
     except Exception:
-        # Fallback message agar Gemini API fail ho jaye
         return "Sir, mera AI quota khatam ho gaya hai. Main abhi local brain use kar raha hoon."
 
-# --- 2. Voice Setup (Tone & Speed Optimized) ---
+# --- 2. Voice Setup ---
 engine = pyttsx3.init()
 r = sr.Recognizer()
-
 engine.setProperty('rate', 180) 
-engine.setProperty('volume', 1.0) 
 
 def speak(text):
     print(f"Jarvis: {text}")
@@ -48,9 +44,9 @@ def getWeather(city):
             desc = res["weather"][0]["description"]
             return f"Sir, {city} ka temperature {temp} degree Celsius hai aur wahan {desc} ho raha hai."
         else:
-            return "Sir, mujhe wo city nahi mili. Please naam check karein."
+            return "Sir, mujhe wo city nahi mili."
     except:
-        return "Sir, weather servers se connection nahi ho paa raha."
+        return "Sir, weather servers offline hain."
 
 def getNews():
     news_key = "f11a43a0429a43369a45610ec1f26a11"
@@ -59,110 +55,95 @@ def getNews():
         res = requests.get(url).json()
         articles = res["articles"][:3] 
         headlines = [a['title'] for a in articles]
-        result = "Sir, aaj ki headlines ye hain: " + " . Agli khabar: ".join(headlines)
-        return result
+        return "Sir, aaj ki headlines ye hain: " + " . ".join(headlines)
     except:
-        return "Sir, news fetch karne mein dikkat ho rahi hai."
+        return "Sir, news fetch nahi ho paa rahi."
 
 # --- 4. Central Command Logic ---
 def processCommand(c):
     c = c.lower()
     
-    # --- 1. Smart Weather & Temperature Logic ---
-    # Ab 'temperature' ya 'mausam' bolne par bhi ye block trigger hoga
-    if any(word in c for word in ["weather", "temperature", "mausam", "temp"]):
-        if "in " in c:
-            city = c.split("in ")[-1].strip()
-        elif "of " in c:
-            city = c.split("of ")[-1].strip()
-        else:
-            speak("Kaunsi city ka weather check karun, sir?")
+    # --- 1. Universal App Opener with Mapping ---
+    if "open" in c:
+        app_name = c.replace("open", "").strip()
+        
+        # Mapping Dictionary: User kya bolega -> Windows kya samjhega
+        app_map = {
+            "calculator": "calc",
+            "calendar": "outlookcal:",
+            "notepad": "notepad",
+            "paint": "mspaint",
+            "chrome": "chrome",
+            "browser": "start msedge"
+        }
+        
+        # Agar mapping mein naam hai toh wo use karo, nahi toh wahi jo bola
+        command_to_run = app_map.get(app_name, app_name)
+        
+        speak(f"Opening {app_name}, Shivam Sir.")
+        
+        # Try-Except taaki agar app na mile toh crash na ho
+        try:
+            os.system(f"start {command_to_run}")
+        except Exception as e:
+            speak(f"Sir, {app_name} kholne mein dikkat ho rahi hai.")
+        return 
+
+    # 2. Math Calculation Logic (Offline Math)
+    elif any(op in c for op in ["plus", "minus", "multiply", "divide", "+", "-", "*", "/"]):
+        try:
+            # Simple math solve karne ke liye
+            calculation = c.replace("plus", "+").replace("minus", "-").replace("multiply", "*").replace("divide", "/")
+            # Filter only math parts
+            result = eval(''.join(filter(lambda x: x in '0123456789+-*/. ', calculation)))
+            speak(f"Sir, iska answer {result} hai.")
+            return
+        except:
+            pass # Agar math na ho toh AI ke paas jaane do
+
+    # 3. Weather & Temperature
+    elif any(word in c for word in ["weather", "temperature", "mausam", "temp"]):
+        city = ""
+        if "in " in c: city = c.split("in ")[-1].strip()
+        elif "of " in c: city = c.split("of ")[-1].strip()
+        
+        if not city:
+            speak("Kaunsi city, sir?")
             try:
                 with sr.Microphone() as source:
-                    r.adjust_for_ambient_noise(source)
                     audio = r.listen(source, timeout=3)
                     city = r.recognize_google(audio)
-            except:
-                city = input("Mic Issue. City Name type karein: ")
+            except: return
         
-        report = getWeather(city)
-        speak(report)
+        speak(getWeather(city))
+        return
 
-    # --- 2. OS & App Automation ---
-    elif "open whatsapp" in c:
-        os.system("start whatsapp://") 
-        speak("Opening WhatsApp, Shivam Sir.")
-
-    elif "open telegram" in c:
-        os.system("start telegram") 
-        speak("Telegram khul gaya hai, sir.")
-
-    elif "open file manager" in c or "open explorer" in c:
-        os.system("explorer")
-        speak("File Explorer active hai, sir.")
-
-    # --- 3. News Logic ---
+    # 4. News
     elif "news" in c or "headlines" in c:
-        speak("Latest news fetch kar raha hoon...")
-        headlines = getNews()
-        speak(headlines)
+        speak(getNews())
+        return
 
-    # --- 4. WhatsApp Messaging ---
+    # 5. WhatsApp
     elif "send whatsapp" in c or "message" in c:
-        speak("Number bataiye Shivam sir?")
+        speak("Number aur message type karein sir.")
         num = input("Enter Number: ")
-        speak("Message kya bhejna hai?")
-        try:
-            with sr.Microphone() as source:
-                r.adjust_for_ambient_noise(source, duration=1.0)
-                audio = r.listen(source, timeout=5)
-                msg = r.recognize_google(audio)
-                speak(f"Bhej raha hoon: {msg}")
-                pywhatkit.sendwhatmsg_instantly(f"+91{num}", msg, wait_time=15)
-                pyautogui.press("enter") 
-        except:
-            msg = input("Mic error. Message type karein: ")
-            pywhatkit.sendwhatmsg_instantly(f"+91{num}", msg, wait_time=15)
-            pyautogui.press("enter")
+        msg = input("Enter Message: ")
+        pywhatkit.sendwhatmsg_instantly(f"+91{num}", msg, wait_time=15)
+        pyautogui.press("enter")
+        return
 
-    # --- 5. System Status ---
+    # 6. System Status
     elif "system status" in c or "battery" in c:
-        battery = psutil.sensors_battery()
         usage = psutil.cpu_percent()
-        speak(f"Sir, CPU usage {usage}% hai aur battery levels {battery.percent}% par hain.")
+        speak(f"Sir, CPU usage {usage}% hai.")
+        return
 
-    # --- 6. Memory Feature ---
-    elif "remember that" in c:
-        info = c.replace("remember that", "").replace("jarvis", "").strip()
-        speak(f"Theek hai sir, main yaad rakhunga: {info}")
-        with open("memory.txt", "w") as f:
-            f.write(info)
-
-    elif "recall" in c or "remember" in c:
-        try:
-            with open("memory.txt", "r") as f:
-                content = f.read()
-                speak(f"Sir, aapne kaha tha ki: {content}")
-        except:
-            speak("Sir, meri memory abhi khali hai.")
-
-    # --- 7. Wikipedia ---
-    elif "wikipedia" in c:
-        query = c.replace("wikipedia", "").strip()
-        try:
-            results = wikipedia.summary(query, sentences=2)
-            speak("Wikipedia ke mutabik...")
-            speak(results)
-        except:
-            speak("Sir, mujhe Wikipedia par kuch nahi mila.")
-
-    # --- 8. Exit ---
-    elif any(word in c for word in ["exit", "stop", "bye"]):
-        speak("Good bye Shivam Sir! Take care.")
+    # 7. Exit
+    elif "exit" in c or "stop" in c:
+        speak("Good bye Shivam Sir!")
         exit()
         
-    # --- 9. AI Brain Fallback (Gemini) ---
-    # Ye tabhi chalega jab upar ka koi keyword match nahi hoga
+    # 8. AI Brain Fallback (Gemini)
     else:
         print("Jarvis: Thinking...")
         answer = aiProcess(c)
@@ -170,6 +151,7 @@ def processCommand(c):
 
 # --- 5. Execution Loop ---
 if __name__ == "__main__":
+    speak("Jarvis initialized. Welcome back Shivam Sir.")
     while True:
         try:
             with sr.Microphone() as source:
@@ -179,12 +161,11 @@ if __name__ == "__main__":
                 wake_word = r.recognize_google(audio).lower()
 
             if "jarvis" in wake_word:
-                speak("Ji Shivam Sir?")
+                speak("Ji Sir?")
                 with sr.Microphone() as source:
                     r.adjust_for_ambient_noise(source, duration=0.2)
                     audio = r.listen(source, timeout=5, phrase_time_limit=5)
                     command = r.recognize_google(audio)
-                    print(f"You said: {command}")
                     processCommand(command)
-        except Exception as e:
+        except:
             continue
